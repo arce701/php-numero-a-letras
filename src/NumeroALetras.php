@@ -1,175 +1,187 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Luecano\NumeroALetras;
 
-use ParseError;
-
-class NumeroALetras
+final class NumeroALetras
 {
+    /** @var int Número máximo soportado */
+    public const MAX_NUMBER = 999999999;
+
+    /** @var int Número mínimo soportado */
+    public const MIN_NUMBER = 0;
+
+    /** @var int Máximo de decimales permitidos */
+    public const MAX_DECIMALS = 10;
     /**
-     * @var array
-     *
-     * Array that contains the Spanish words for numbers from 0 to 20.
-     * Each index corresponds to the number it represents.
-     *
-     * Example:
-     * - $unidades[1] returns 'UNO '
-     * - $unidades[10] returns 'DIEZ '
+     * Cache for pre-computed numbers 0-999
      */
-    private $unidades = [
-        '',
-        'UNO ',
-        'DOS ',
-        'TRES ',
-        'CUATRO ',
-        'CINCO ',
-        'SEIS ',
-        'SIETE ',
-        'OCHO ',
-        'NUEVE ',
-        'DIEZ ',
-        'ONCE ',
-        'DOCE ',
-        'TRECE ',
-        'CATORCE ',
-        'QUINCE ',
-        'DIECISÉIS ',
-        'DIECISIETE ',
-        'DIECIOCHO ',
-        'DIECINUEVE ',
-        'VEINTE ',
+    private static array $cache = [];
+    private static bool $cacheInitialized = false;
+
+    /**
+     * @var array Unidades básicas (0-20)
+     */
+    private array $unidades = [
+        '', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE',
+        'DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE',
+        'DIECIOCHO', 'DIECINUEVE', 'VEINTE'
     ];
 
     /**
-     * @var array Array containing Spanish words for tens (decades).
-     *
-     * This array is used to convert numbers into their corresponding Spanish words
-     * for tens. The values represent the words for twenty, thirty, forty, fifty,
-     * sixty, seventy, eighty, ninety, and one hundred.
+     * @var array Veintenas (21-29) con acentuación correcta RAE
      */
-    private $decenas = [
-        'VEINTI',
-        'TREINTA ',
-        'CUARENTA ',
-        'CINCUENTA ',
-        'SESENTA ',
-        'SETENTA ',
-        'OCHENTA ',
-        'NOVENTA ',
-        'CIEN ',
+    private array $veintenas = [
+        21 => 'VEINTIUNO',
+        22 => 'VEINTIDÓS',
+        23 => 'VEINTITRÉS',
+        24 => 'VEINTICUATRO',
+        25 => 'VEINTICINCO',
+        26 => 'VEINTISÉIS',
+        27 => 'VEINTISIETE',
+        28 => 'VEINTIOCHO',
+        29 => 'VEINTINUEVE'
     ];
 
     /**
-     * Array of strings representing the hundreds in Spanish.
-     *
-     * @var string[]
+     * @var array Decenas (30-90)
      */
-    private $centenas = [
-        'CIENTO ',
-        'DOSCIENTOS ',
-        'TRESCIENTOS ',
-        'CUATROCIENTOS ',
-        'QUINIENTOS ',
-        'SEISCIENTOS ',
-        'SETECIENTOS ',
-        'OCHOCIENTOS ',
-        'NOVECIENTOS ',
+    private array $decenas = [
+        30 => 'TREINTA', 40 => 'CUARENTA', 50 => 'CINCUENTA',
+        60 => 'SESENTA', 70 => 'SETENTA', 80 => 'OCHENTA', 90 => 'NOVENTA'
     ];
 
     /**
-     * Array of exceptions for accented words.
-     *
-     * This array contains specific words that require accents in their
-     * representation. The key is the word without the accent, and the
-     * value is the word with the correct accent.
-     *
-     * @var array
+     * @var array Centenas (200-900)
      */
-    private $acentosExcepciones = [
-        'VEINTIDOS'  => 'VEINTIDÓS ',
-        'VEINTITRES' => 'VEINTITRÉS ',
-        'VEINTISEIS' => 'VEINTISÉIS ',
+    private array $centenas = [
+        200 => 'DOSCIENTOS', 300 => 'TRESCIENTOS', 400 => 'CUATROCIENTOS',
+        500 => 'QUINIENTOS', 600 => 'SEISCIENTOS', 700 => 'SETECIENTOS',
+        800 => 'OCHOCIENTOS', 900 => 'NOVECIENTOS'
     ];
 
     /**
-     * @var string The connector string used in the NumeroALetras class.
+     * @var string
      */
-    public $conector = 'CON';
+    public string $conector = 'CON';
 
     /**
-     * @var bool
-     *
-     * This property determines whether the apocope (shortened form) of numbers should be used.
-     * When set to true, the apocope form will be applied.
-     * Default value is false.
+     * @var bool Activar apócope para compatibilidad
      */
-    public $apocope = false;
+    public bool $apocope = false;
+
+    public function __construct()
+    {
+        $this->initializeCache();
+    }
 
     /**
-     * Converts a numeric value to its word representation.
+     * Initialize cache for numbers 0-999 (sin apócope, aplicado dinámicamente)
+     */
+    private function initializeCache(): void
+    {
+        if (self::$cacheInitialized) {
+            return;
+        }
+
+        for ($i = 0; $i <= 999; $i++) {
+            self::$cache[$i] = $this->computeBaseNumberWithoutApocope($i);
+        }
+
+        self::$cacheInitialized = true;
+    }
+
+    /**
+     * Convierte número a palabras
      *
-     * @param float|int $number   The number to be converted.
-     * @param int       $decimals The number of decimal places to consider. Default is 2.
-     *
-     * @return string The word representation of the number.
+     * @param float|int $number Número a convertir (0-999,999,999)
+     * @param int $decimals Decimales a procesar (0-10)
+     * @return string Número en letras
+     * @throws \InvalidArgumentException Si el número está fuera del rango válido
      */
     public function toWords(float|int $number, int $decimals = 2): string
     {
-        $this->checkApocope();
+        $this->validateDecimals($decimals);
 
         $number = number_format($number, $decimals, '.', '');
-
         $splitNumber = explode('.', $number);
 
-        $splitNumber[0] = $this->wholeNumber($splitNumber[0]);
+        $splitNumber[0] = $this->wholeNumber((int)$splitNumber[0]);
 
-        if (!empty($splitNumber[1])) {
-            $splitNumber[1] = $this->convertNumber($splitNumber[1]);
+        if (!empty($splitNumber[1]) && (int)$splitNumber[1] > 0) {
+            $splitNumber[1] = $this->convertNumber((int)$splitNumber[1]);
+        } else {
+            $splitNumber[1] = '';
         }
 
         return $this->concat($splitNumber);
     }
 
     /**
-     * Converts a numeric value to its money representation in words.
+     * Convierte a moneda
      *
-     * @param float  $number   The numeric value to be converted.
-     * @param int    $decimals The number of decimal places to consider. Default is 2.
-     * @param string $currency The currency to append to the whole number part. Default is an empty string.
-     * @param string $cents    The currency to append to the decimal part. Default is an empty string.
-     *
-     * @return string The money representation of the number in words.
+     * @param float $number Cantidad a convertir
+     * @param int $decimals Decimales (0-10)
+     * @param string $currency Nombre de la moneda
+     * @param string $cents Nombre de los centavos
+     * @return string Cantidad en letras con moneda
+     * @throws \InvalidArgumentException Si los parámetros son inválidos
      */
     public function toMoney(float $number, int $decimals = 2, string $currency = '', string $cents = ''): string
     {
-        $this->checkApocope();
+        $this->validateDecimals($decimals);
 
         $number = number_format($number, $decimals, '.', '');
-
         $splitNumber = explode('.', $number);
 
-        $splitNumber[0] = $this->wholeNumber($splitNumber[0]) . ' ' . mb_strtoupper($currency, 'UTF-8');
+        $splitNumber[0] = $this->wholeNumber((int)$splitNumber[0]) . ' ' . mb_strtoupper($currency, 'UTF-8');
 
-        if (!empty($splitNumber[1])) {
-            $splitNumber[1] = $this->convertNumber($splitNumber[1]);
-        }
-
-        if (!empty($splitNumber[1])) {
-            $splitNumber[1] .= ' ' . mb_strtoupper($cents, 'UTF-8');
+        if (!empty($splitNumber[1]) && (int)$splitNumber[1] > 0) {
+            $centValue = (int)$splitNumber[1];
+            $splitNumber[1] = $this->convertNumber($centValue) . ' ' . mb_strtoupper($cents, 'UTF-8');
+        } else {
+            $splitNumber[1] = '';
         }
 
         return $this->concat($splitNumber);
     }
 
     /**
-     * Converts a number to its string representation.
+     * Formato de factura estándar
      *
-     * @param float|int $number      The number to be converted.
-     * @param int       $decimals    The number of decimal places to include in the string representation. Default is 2.
-     * @param string    $whole_str   The string to use for the whole number part. Default is an empty string.
-     * @param string    $decimal_str The string to use for the decimal part. Default is an empty string.
+     * @param float $number Monto de la factura
+     * @param int $decimals Decimales (0-10)
+     * @param string $currency Moneda
+     * @return string Monto en formato factura (ej: "CIEN Y 50/100 SOLES")
+     * @throws \InvalidArgumentException Si los parámetros son inválidos
+     */
+    public function toInvoice(float $number, int $decimals = 2, string $currency = ''): string
+    {
+        $this->validateDecimals($decimals);
+
+        $number = number_format($number, $decimals, '.', '');
+        $splitNumber = explode('.', $number);
+
+        $splitNumber[0] = $this->wholeNumber((int)$splitNumber[0]);
+
+        if (!empty($splitNumber[1])) {
+            $splitNumber[1] = str_pad($splitNumber[1], 2, '0', STR_PAD_RIGHT) . '/100';
+        } else {
+            $splitNumber[1] = '00/100';
+        }
+
+        return implode(' Y ', array_filter($splitNumber)) . ' ' . mb_strtoupper($currency, 'UTF-8');
+    }
+
+    /**
+     * Compatibilidad con versión anterior
      *
-     * @return string The string representation of the number.
+     * @param float|int $number Número a convertir
+     * @param int $decimals Decimales
+     * @param string $whole_str Texto para parte entera
+     * @param string $decimal_str Texto para decimales
+     * @return string Resultado en letras
      */
     public function toString(float|int $number, int $decimals = 2, string $whole_str = '', string $decimal_str = ''): string
     {
@@ -177,172 +189,211 @@ class NumeroALetras
     }
 
     /**
-     * Converts a number to its invoice representation in words.
-     *
-     * @param float  $number   The number to be converted.
-     * @param int    $decimals The number of decimal places to consider. Default is 2.
-     * @param string $currency The currency to append to the converted number. Default is an empty string.
-     *
-     * @return string The number converted to its invoice representation in words, followed by the currency in uppercase.
+     * Convierte número entero
      */
-    public function toInvoice(float $number, int $decimals = 2, string $currency = ''): string
+    private function wholeNumber(int $number): string
     {
-        $this->checkApocope();
-
-        $number = number_format($number, $decimals, '.', '');
-
-        $splitNumber = explode('.', $number);
-
-        $splitNumber[0] = $this->wholeNumber($splitNumber[0]);
-
-        if (!empty($splitNumber[1])) {
-            $splitNumber[1] .= '/100 ';
-        } else {
-            $splitNumber[1] = '00/100 ';
+        if ($number === 0) {
+            return 'CERO';
         }
-
-        return $this->concat($splitNumber) . mb_strtoupper($currency, 'UTF-8');
+        return $this->convertNumber($number);
     }
 
     /**
-     * Checks if the apocope flag is set to true and modifies the 'unidades' array accordingly.
-     *
-     * If the apocope flag is true, the value at index 1 of the 'unidades' array is set to 'UN '.
-     *
-     * @return void
-     */
-    private function checkApocope(): void
-    {
-        if ($this->apocope === true) {
-            $this->unidades[1] = 'UN ';
-        }
-    }
-
-    /**
-     * Converts a whole number to its corresponding word representation.
-     *
-     * This method takes a numeric string and converts it to its word representation.
-     * If the number is '0', it returns 'CERO '. Otherwise, it uses the convertNumber
-     * method to convert the number.
-     *
-     * @param string $number The numeric string to be converted.
-     *
-     * @return string The word representation of the number.
-     */
-    private function wholeNumber(string $number): string
-    {
-        if ($number == '0') {
-            $number = 'CERO ';
-        } else {
-            $number = $this->convertNumber($number);
-        }
-
-        return $number;
-    }
-
-    /**
-     * Concatenates an array of strings with a connector.
-     *
-     * This method takes an array of strings, filters out any empty values,
-     * and then concatenates the remaining values using a connector string.
-     * The connector string is converted to uppercase using UTF-8 encoding.
-     *
-     * @param array $splitNumber The array of strings to concatenate.
-     *
-     * @return string The concatenated string.
+     * Concatena partes con conector
      */
     private function concat(array $splitNumber): string
     {
-        return implode(' ' . mb_strtoupper($this->conector, 'UTF-8') . ' ', array_filter($splitNumber));
+        $filteredParts = array_filter($splitNumber, function ($part) {
+            return !empty(trim($part));
+        });
+
+        if (count($filteredParts) <= 1) {
+            return implode('', $filteredParts);
+        }
+
+        return implode(' ' . mb_strtoupper($this->conector, 'UTF-8') . ' ', $filteredParts);
     }
 
     /**
-     * Converts a numeric value into its corresponding Spanish words representation.
-     *
-     * This function handles numbers from 0 to 999,999,999. It divides the number into
-     * millions, thousands, and hundreds, and converts each group into words.
-     *
-     * @param int $number The number to be converted. Must be between 0 and 999,999,999.
-     *
-     * @throws ParseError If the number is less than 0 or greater than 999,999,999.
-     *
-     * @return string The number converted into Spanish words.
+     * Conversión principal optimizada por rangos
      */
     private function convertNumber(int $number): string
     {
-        $converted = '';
-
-        if ($number < 0 || !is_numeric($number) || $number > 999999999) {
-            throw new ParseError('Invalid number');
+        if ($number < self::MIN_NUMBER || $number > self::MAX_NUMBER) {
+            throw new \InvalidArgumentException(
+                sprintf('Number must be between %d and %s', self::MIN_NUMBER, number_format(self::MAX_NUMBER))
+            );
         }
 
-        $numberStrFill = str_pad($number, 9, '0', STR_PAD_LEFT);
-        $millones = substr($numberStrFill, 0, 3);
-        $miles = substr($numberStrFill, 3, 3);
-        $cientos = substr($numberStrFill, 6);
+        if ($number === 0) {
+            return '';
+        }
 
-        if (intval($millones) > 0) {
-            if ($millones == '001') {
-                $converted .= 'UN MILLÓN ';
-            } elseif (intval($millones) > 0) {
-                $converted .= sprintf('%sMILLONES ', $this->convertGroup($millones));
+        // Rango 1-999: usar cache y aplicar apócope si está activado
+        if ($number <= 999) {
+            $result = self::$cache[$number] ?? '';
+            if ($this->apocope) {
+                $result = $this->applyApocopeToResult($result);
             }
+            return $result;
         }
 
-        if (intval($miles) > 0) {
-            if ($miles == '001') {
-                $converted .= 'MIL ';
-            } elseif (intval($miles) > 0) {
-                $converted .= sprintf('%sMIL ', $this->convertGroup($miles));
-            }
+        // Rango 1000-999999: optimización para miles
+        if ($number < 1000000) {
+            return $this->convertThousands($number);
         }
 
-        if (intval($cientos) > 0) {
-            if ($cientos == '001') {
-                $this->apocope === true ? $converted .= 'UN ' : $converted .= 'UNO ';
-            } elseif (intval($cientos) > 0) {
-                $converted .= sprintf('%s ', $this->convertGroup($cientos));
-            }
-        }
-
-        return trim($converted);
+        // Rango 1000000-999999999: millones
+        return $this->convertMillions($number);
     }
 
     /**
-     * Converts a group of numbers into its corresponding Spanish words representation.
-     *
-     * This function converts a group of numbers (from 0 to 999) into its corresponding
-     * Spanish words representation. It handles the hundreds, tens, and units of the group.
-     *
-     * @param string $n The group of numbers to be converted.
-     *
-     * @return string The group of numbers converted into Spanish words.
+     * Convierte números 1-999 sin apócope (para cache)
      */
-    private function convertGroup(string $group): string
+    private function computeBaseNumberWithoutApocope(int $number): string
     {
-        $output = '';
-
-        if ($group == '100') {
-            $output = 'CIEN ';
-        } elseif ($group[0] !== '0') {
-            $output = $this->centenas[$group[0] - 1];
+        if ($number === 0) {
+            return '';
         }
 
-        $k = intval(substr($group, 1));
+        $result = '';
 
-        if ($k <= 20) {
-            $unidades = $this->unidades[$k];
-        } else {
-            if (($k > 30) && ($group[2] !== '0')) {
-                $unidades = sprintf('%sY %s', $this->decenas[intval($group[1]) - 2], $this->unidades[intval($group[2])]);
+        // Centenas
+        if ($number >= 100) {
+            if ($number === 100) {
+                return 'CIEN';
+            }
+
+            $hundreds = intval($number / 100);
+            if ($hundreds === 1) {
+                $result .= 'CIENTO ';
             } else {
-                $unidades = sprintf('%s%s', $this->decenas[intval($group[1]) - 2], $this->unidades[intval($group[2])]);
+                $result .= $this->centenas[$hundreds * 100] . ' ';
+            }
+            $number %= 100;
+        }
+
+        if ($number === 0) {
+            return trim($result);
+        }
+
+        // Números 1-20
+        if ($number <= 20) {
+            $result .= $this->unidades[$number];
+            return trim($result);
+        }
+
+        // Veintenas 21-29 con acentuación
+        if ($number <= 29) {
+            $result .= $this->veintenas[$number];
+            return trim($result);
+        }
+
+        // Decenas 30-99
+        $tens = intval($number / 10) * 10;
+        $units = $number % 10;
+
+        $result .= $this->decenas[$tens];
+
+        if ($units > 0) {
+            $result .= ' Y ' . $this->unidades[$units];
+        }
+
+        return trim($result);
+    }
+
+    /**
+     * Aplica apócope a un resultado ya generado
+     */
+    private function applyApocopeToResult(string $text): string
+    {
+        // UNO al final -> UN
+        if ($text === 'UNO') {
+            return 'UN';
+        }
+
+        // VEINTIUNO -> VEINTIÚN
+        $text = str_replace('VEINTIUNO', 'VEINTIÚN', $text);
+
+        // Para casos como "TREINTA Y UNO" -> "TREINTA Y UN"
+        $text = str_replace(' Y UNO', ' Y UN', $text);
+
+        // Para casos que terminan en UNO
+        if (str_ends_with($text, ' UNO')) {
+            $text = substr($text, 0, -4) . ' UN';
+        }
+
+        return $text;
+    }
+
+    /**
+     * Convierte miles (1000-999999)
+     */
+    private function convertThousands(int $number): string
+    {
+        $thousands = intval($number / 1000);
+        $remainder = $number % 1000;
+
+        $result = '';
+
+        if ($thousands === 1) {
+            $result = 'MIL';
+        } else {
+            $result = self::$cache[$thousands] . ' MIL';
+        }
+
+        if ($remainder > 0) {
+            $result .= ' ' . self::$cache[$remainder];
+        }
+
+        return trim($result);
+    }
+
+    /**
+     * Convierte millones (1000000-999999999)
+     */
+    private function convertMillions(int $number): string
+    {
+        $millions = intval($number / 1000000);
+        $remainder = $number % 1000000;
+
+        $result = '';
+
+        if ($millions === 1) {
+            $result = 'UN MILLÓN';
+        } else {
+            $cached = self::$cache[$millions] ?? $this->computeBaseNumberWithoutApocope($millions);
+            if ($this->apocope) {
+                $cached = $this->applyApocopeToResult($cached);
+            }
+            $result = $cached . ' MILLONES';
+        }
+
+        if ($remainder > 0) {
+            if ($remainder >= 1000) {
+                $result .= ' ' . $this->convertThousands($remainder);
+            } else {
+                $remainderText = self::$cache[$remainder] ?? $this->computeBaseNumberWithoutApocope($remainder);
+                if ($this->apocope) {
+                    $remainderText = $this->applyApocopeToResult($remainderText);
+                }
+                $result .= ' ' . $remainderText;
             }
         }
 
-        $output .= array_key_exists(trim($unidades), $this->acentosExcepciones) ?
-            $this->acentosExcepciones[trim($unidades)] : $unidades;
+        return trim($result);
+    }
 
-        return $output;
+    /**
+     * Valida el parámetro de decimales
+     */
+    private function validateDecimals(int $decimals): void
+    {
+        if ($decimals < 0 || $decimals > self::MAX_DECIMALS) {
+            throw new \InvalidArgumentException(
+                sprintf('Decimals must be between 0 and %d', self::MAX_DECIMALS)
+            );
+        }
     }
 }
