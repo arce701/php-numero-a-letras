@@ -492,8 +492,11 @@ final class NumeroALetrasTest extends TestCase
         ];
 
         foreach ($raeTests as [$number, $expected]) {
-            $this->assertEquals($expected, $formatter->toWords($number),
-                "RAE compliance failed for number {$number}");
+            $this->assertEquals(
+                $expected,
+                $formatter->toWords($number),
+                "RAE compliance failed for number {$number}"
+            );
         }
     }
 
